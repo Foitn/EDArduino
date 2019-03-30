@@ -10,7 +10,7 @@
 namespace ed
 {
   const uint8_t crcTable[ ] =
-{
+  {
      0,  94, 188, 226,  97,  63, 221, 131, 194, 156, 126,  32, 163, 253,  31,  65,
    157, 195,  33, 127, 252, 162,  64,  30,  95,   1, 227, 189,  62,  96, 130, 220,
     35, 125, 159, 193,  66,  28, 254, 160, 225, 191,  93,   3, 128, 222,  60,  98,
@@ -27,7 +27,7 @@ namespace ed
     87,   9, 235, 181,  54, 104, 138, 212, 149, 203,  41, 119, 244, 170,  72,  22,
    233, 183,  85,  11, 136, 214,  52, 106,  43, 117, 151, 201,  74,  20, 246, 168,
    116,  42, 200, 150,  21,  75, 169, 247, 182, 232,  10,  84, 215, 137, 107,  53
-};
+  };
   enum Command{
     GetInfo = 'I',
     GetVersion = 'V',
@@ -50,24 +50,38 @@ namespace ed
       memcpy(this->cmdData, cmdData, cmdDataSize);
       this->cmdDataSize = cmdDataSize;
     }
+    Msg(){}
 
+    // Function to add a value to the crc (crc table is defined at the top of this file)
     unsigned char AddToCRC(uint8_t crc, uint8_t charToAdd){
       return crcTable[crc ^ charToAdd];
     }
 
-    int serialize(uint8_t *outbuffer) const
+    // Function to serialize a Msg object
+    // Used to send to the pc application
+    // Returns the length of the outbuffer
+    int serialize(uint8_t *outbuffer)
     {
       uint8_t *writePointer = outbuffer;
       uint8_t crc = 0;
+      // Start the message with STX
       *writePointer++ = STX;
+      // Add the nodeID to the message
       *writePointer++ = nodeID;
-      crc = AddToCRC(crc, nodeID);
+      // Add the msgID to the message
       *writePointer++ = msgID;
-      crc = AddToCRC(crc, msgID);
+      // Add the cmd to the message
       *writePointer++ = cmd;
+
+      // Calculate the crc for the nodeID, msgID and cmd
+      crc = AddToCRC(crc, nodeID);
+      crc = AddToCRC(crc, msgID);
       crc = AddToCRC(crc, cmd);
+
+      // Add the cmdData to the message, while calculating the crc
       for(int i = 0; i < cmdDataSize; i++){
         crc = AddToCRC(crc, cmdData[i]);
+        // Escape the value if needed
         if(cmdData[i] == STX || cmdData[i] == ETX ||  cmdData[i] == ESC){
           *writePointer++ = ESC;
           *writePointer++ = cmdData[i] ^ ESC;
@@ -75,30 +89,63 @@ namespace ed
           *writePointer++ = cmdData[i];
         }
       }
+
+      // Escape the crc if needed
       if(crc == STX || crc == ETX || crc == ESC){
         *writePointer++ = crc ^ ESC;
       } else {
         *writePointer++ = crc;
       }
+      // Add ETX
       *writePointer = ETX;
+
       return cmdDataSize + 7;
     }
 
-    // input = char array
-    // output = msg
-    int deserialize(unsigned char *inbuffer)
+    // Function to deserialize a Msg object received from the pc application
+    // Returns 0 if the message was complete and correct, otherwise 1 is returned
+    int deserialize(uint8_t *inbuffer)
     {
-      if(*inbuffer != STX) return 0;
-      unsigned char *counterPointer = *inbuffer;
-      uint32_t size = 0;
-      do {
+      if(*inbuffer != STX) return 1;
+      uint8_t *counterPointer = inbuffer;
+      uint8_t size = 0;
+      uint8_t calcCrc = 0;
+      uint8_t messageBytes[255] = {};
+      cmdDataSize = 0;
+
+      // Go through the buffer, to get size and remove any escape characters
+      while(*(++counterPointer) != ETX){
+        if(*counterPointer == ESC){
+          messageBytes[size] = *(++counterPointer) ^ ESC;
+        } else {
+          messageBytes[size] = *counterPointer;
+        }
         size++;
-      } while(counterPointer++ != ETX);
-      nodeID = *inbuffer + 1;
-      msgID = *inbuffer + 2;
-      cmd = (Command)*inbuffer + 3;
-      memcpy(cmdData, inbuffer+4, size-7);
-      crc = *inbuffer + (size-2);
+      }
+
+      // Retrieve data from the messagebytes
+      nodeID = messageBytes[0];
+      msgID = messageBytes[1];
+      cmd = messageBytes[2];
+
+      // Calculate the crc
+      calcCrc = AddToCRC(calcCrc, nodeID);
+      calcCrc = AddToCRC(calcCrc, msgID);
+      calcCrc = AddToCRC(calcCrc, cmd);
+
+      // Retrieve cmdData from the messagebytes
+      for(uint8_t i = 3; i < size-1; i++){
+        cmdData[i-3] = messageBytes[i];
+        // Add cmdData to the crc
+        calcCrc = AddToCRC(calcCrc, cmdData[i-3]);
+      }
+      cmdDataSize = size-4;
+      crc = messageBytes[size-1];
+
+      // Check if the crc is the same as calculated
+      if(crc != calcCrc) return 1;
+
+      // Message has been deserialized correctly
       return 0;
     }
   protected:
@@ -106,7 +153,7 @@ namespace ed
     uint8_t msgID;
     uint8_t cmd;
     uint8_t crc;
-    uint8_t cmdData[256];
+    uint8_t cmdData[255] = {};
   private:
     uint8_t cmdDataSize;
   };
