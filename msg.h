@@ -50,7 +50,31 @@ namespace ed
       memcpy(this->cmdData, cmdData, cmdDataSize);
       this->cmdDataSize = cmdDataSize;
     }
+
+    Msg(uint8_t nodeID, uint8_t msgID, uint8_t cmd){
+      this->nodeID = nodeID;
+      this->msgID = msgID;
+      this->cmd = cmd;
+      this->cmdDataSize = 0;
+    }
+
     Msg(){}
+
+    uint8_t getNodeID(){
+      return nodeID;
+    }
+
+    uint8_t getMsgID(){
+      return msgID;
+    }
+
+    uint8_t getCmd(){
+      return cmd;
+    }
+
+    uint8_t* getCmdData(){
+      return cmdData;
+    }
 
     // Function to add a value to the crc (crc table is defined at the top of this file)
     unsigned char AddToCRC(uint8_t crc, uint8_t charToAdd){
@@ -112,7 +136,6 @@ namespace ed
       uint8_t calcCrc = 0;
       uint8_t messageBytes[255] = {};
       cmdDataSize = 0;
-
       // Go through the buffer, to get size and remove any escape characters
       while(*(++counterPointer) != ETX){
         if(*counterPointer == ESC){
@@ -134,8 +157,11 @@ namespace ed
       calcCrc = AddToCRC(calcCrc, cmd);
 
       // Retrieve cmdData from the messagebytes
+      Serial.println("My cmdData");
       for(uint8_t i = 3; i < size-1; i++){
         cmdData[i-3] = messageBytes[i];
+        Serial.print(cmdData[i-3]);
+        Serial.print(" ");
         // Add cmdData to the crc
         calcCrc = AddToCRC(calcCrc, cmdData[i-3]);
       }
@@ -143,22 +169,26 @@ namespace ed
       crc = messageBytes[size-1];
 
       // Check if the crc is the same as calculated
-      if(crc != calcCrc) return 1;
+      if(crc != calcCrc){
+        Serial.print("Expected crc: ");
+        Serial.println(crc);
+        Serial.print("Calculated crc: ");
+        Serial.println(calcCrc);
+
+        return 1;
+      }
 
       // Message has been deserialized correctly
       return 0;
     }
-  protected:
+  private:
     uint8_t nodeID;
     uint8_t msgID;
     uint8_t cmd;
     uint8_t crc;
-    uint8_t cmdData[255] = {};
-  private:
+    uint8_t cmdData[128] = {};
     uint8_t cmdDataSize;
   };
-
-
 }
 
 #endif
